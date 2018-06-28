@@ -54,7 +54,7 @@ string { return Parser.STRING; }
 void { return Parser.VOID; }
 main { return Parser.MAIN; }
 if { return Parser.IF; }
-
+new {return Parser.NEW; }
 
 [a-zA-Z][a-zA-Z_0-9]* { yyparser.yylval = new ParserVal(yytext());
                      return Parser.IDENT; }

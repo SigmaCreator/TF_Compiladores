@@ -8,12 +8,21 @@ public class TS_entry {
     public TabSimb locais;
     public TS_entry parent;
 
-    public TS_entry(String umId, TS_entry umTipo, SimbID umaClasse, TS_entry tp) {
+    public boolean indexed;
+    public int size;
 
+    public TS_entry(String umId, TS_entry umTipo, SimbID umaClasse, TS_entry tp) {
+        this(umId, umTipo, umaClasse, tp, false, 0);
+        
+    }
+
+    public TS_entry(String umId, TS_entry umTipo, SimbID umaClasse, TS_entry tp, boolean isIndexed, int umTamanho) {
         id = umId;
         tipo = umTipo;
         classe = umaClasse;
         tipoBase = tp;
+        indexed = isIndexed;
+        
     }
 
     public String getId() { return id; }

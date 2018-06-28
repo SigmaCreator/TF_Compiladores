@@ -79,10 +79,32 @@ declare : type idList
 type : INT    { currentType = Tp_INT; }
      | DOUBLE { currentType = Tp_DOUBLE; }
      | BOOL   { currentType = Tp_BOOL; }
+     | IDENT  { 
+                TS_entry nodo = currScope.pesquisa($1);
+                if (nodo == null) { yyerror("Type <" + $1 + "> not Defined"); $$ = Tp_ERRO; }
+                else { currentType = nodo.getTipo();}
+              }
+    | IDENT '[' ']' { 
+                TS_entry nodo = currScope.pesquisa($1);
+                if (nodo == null) { yyerror("Type <" + $1 + "> not Defined"); $$ = Tp_ERRO; }
+                else { currentType = nodo.getTipo();}
+              }
      ;
 
-idList : idList  ',' IDENT { currScope.locais.insert(new TS_entry($3, currentType, currSymb, null)); } 
-       | IDENT { currScope.locais.insert(new TS_entry($1, currentType, currSymb, null)); }
+var : IDENT               { currScope.insert(new TS_entry($1, currentType, currSymb, null)); } 
+    | IDENT '[' exp ']'   { TS_entry basetype = nodo.pesquisa($1);
+                            if(basetype == null) { yyerror("Undefined base type " + "<" + $1 + ">");}
+                            else{
+                                if($3 <= 0) {yyerror("Array size is negative on <" + $1 + "> or zero.");}
+                                else{ 
+                                  currScope.insert(new TS_entry($1, currentType, currSymb, basetype, true, $3)); 
+                                }
+                            }                   
+                          } 
+    ;
+
+idList : idList  ',' var
+       | var
        ;
 
 methods : PUBLIC ':' methodList
@@ -149,7 +171,7 @@ auxArgList : argList
            ;
 
 argList : argList ',' exp { args.add($3); }
-        | exp
+        | exp { args.add($1); }
         ;
 
 exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
@@ -159,7 +181,6 @@ exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
     | '(' exp ')' { $$ = $2; }
     | exp '=' exp  {  $$ = validaTipo(ATRIB, (TS_entry)$1, (TS_entry)$3);  }
     | IDENT {
-
         TS_entry call = currScope.parent.pesquisa($1);
         if (call == null) { yyerror("Method " + $1 + " not declared");
 
@@ -184,13 +205,12 @@ exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
     }
 
     | NEW IDENT {
+                  TS_entry instance = currScope.parent.pesquisa($2);
+                  if (instance == null) { yyerror("Class " + $2 + " not declared");
+                  }
+                }
 
-        TS_entry instance = currScope.parent.pesquisa($2);
-        if (instance == null) { yyerror("Class " + $1 + " not declared");
-
-    }
-    
-    '(' auxArgList ')' { 
+                '(' auxArgList ')' { 
 
       ArrayList<TS_entry> methods = currScope.parent.locais.getMethods($2);
       ArrayList<TS_entry> aux;
@@ -210,13 +230,26 @@ exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
 
     }
 
-    | IDENT       { 
+    | IDENT { 
 
         TS_entry nodo = currScope.pesquisa($1);
         if (nodo == null) { yyerror("(sem) var <" + $1 + "> nao declarada"); $$ = Tp_ERRO; } 
         else { $$ = nodo.getTipo(); }
 
       }
+
+//como garantir q $3 eh um numero
+    | IDENT '[' exp ']' { 
+        TS_entry nodo = currScope.pesquisa($1);
+        if (nodo == null) { yyerror("(sem) var <" + $1 + "> nao declarada"); $$ = Tp_ERRO; } 
+        else if(nodo.indexed && nodo.tamanho ){
+          if(> $3 && $3 >= 0)   { $$ = nodo.getTipoBase(); } 
+          else  {yyerror("Index out of bounds of: " + $1); $$ = Tp_ERRO;}
+        } 
+        else {yyerror($1 + " isn't an indexed variable" ); $$ = Tp_ERRO;}
+    }
+
+
     ;
 
 
