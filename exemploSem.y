@@ -1,20 +1,26 @@
     
 %{
   import java.io.*;
+  import java.util.ArrayList;
 %}
 
-%token CLASS, EXTENDS, PRIVATE, PUBLIC, IDENT, NEW
-%token IF, ENDIF, ELSE, WHILE, ENDWHILE, FOR, ENDFOR, PRINT, SCAN
-%token INT, DOUBLE, BOOL, NUM, STRING
+%token CLASS, EXTENDS, PRIVATE, PUBLIC, IDENT, NEW, OVERRIDE, PUBLIC, PRIVATE
+%token IF, ENDIF, ELSE, WHILE, ENDWHILE, FOR, ENDFOR, PRINT, SCAN, BREAK, RETURN
+%token INT, DOUBLE, BOOL, NUMINT, NUMDOUBLE, STRING
 %token LITERAL, AND, VOID, MAIN
 
 %right '='
 %nonassoc '>'
+%nonassoc '<'
+%right '*'
+%right '/'
 %left '+'
+%left '-'
 %left AND
 
 %type <sval> IDENT
-%type <ival> NUM
+%type <ival> NUMINT
+%type <dval> NUMDOUBLE
 %type <obj> type
 %type <obj> exp
 
@@ -64,6 +70,7 @@ class : CLASS IDENT {
         }
           
         '{' atribs methods '}'
+
       ;
 
 atribs : PRIVATE ':' { currSymb = SimbID.VarLocal; } declareList
@@ -73,12 +80,18 @@ declareList : declare declareList
             |
             ;
 
-declare : type idList
-     ;
+declare : type idList ';'
+        ;
 
 type : INT    { currentType = Tp_INT; }
      | DOUBLE { currentType = Tp_DOUBLE; }
      | BOOL   { currentType = Tp_BOOL; }
+     | IDENT  { 
+                 TS_entry nodo = currScope.pesquisa($1);
+                 if (nodo == null) { yyerror("Type <" + $1 + "> not Defined"); currentType = Tp_ERRO;}
+                 else { currentType = nodo.getTipo(); }
+               }
+     | VOID { currentType = Tp_VOID; }
      ;
 
 idList : idList  ',' IDENT { currScope.locais.insert(new TS_entry($3, currentType, currSymb, null)); } 
@@ -98,24 +111,37 @@ method : type IDENT {
             currScope = newMethod; 
           } 
 
-         '(' paramList ')' { if (!currScope.parent.pesquisaPoli(currScope)) yyerror(" Method overload already defined "); }
+         '(' auxParamList ')' { if (!currScope.parent.pesquisaPoli(currScope)) yyerror(" Method overload already defined "); }
 
           declareList block 
           
           { currScope.parent.locais.insert(currScope); currScope = currScope.parent; }
 
        | IDENT {
-            if ($1 != currScope.getId()) yyerror("それはちがうよ");
+            if (!$1.equals(currScope.getId())) yyerror("それはちがうよ");
             TS_entry newMethod = new TS_entry($1, currScope, SimbID.NomeFuncao, null); 
             newMethod.parent = currScope; 
             currScope = newMethod;
           }
 
-          '(' paramList ')' {  if (!currScope.parent.pesquisaPoli(currScope)) yyerror(" Method overload already defined "); } 
+          '(' auxParamList ')' {  if (!currScope.parent.pesquisaPoli(currScope)) yyerror(" Method overload already defined "); } 
 
           declareList block
 
           { currScope.parent.locais.insert(currScope); currScope = currScope.parent; }
+       | OVERRIDE type IDENT { 
+                                TS_entry newMethod = new TS_entry($3, currentType, SimbID.NomeFuncao, null); 
+                                newMethod.parent = currScope; 
+                                currScope = newMethod; 
+                             } 
+
+                              '(' auxParamList ')' 
+                              
+                             { if (currScope.parent.pesquisaPoli(currScope)) yyerror("No method to override on base class with given parameters."); }
+
+                                                   declareList block 
+          
+                             { currScope.parent.locais.insert(currScope); currScope = currScope.parent; }
 
        ; 
 
@@ -137,83 +163,89 @@ cmdList : cmdList cmd
 cmd : exp ';'
     | IF exp ':' cmd ELSE ':' cmd ENDIF
     | IF exp ':' cmd ENDIF
-    | WHILE exp ':' cmd ENDWHILE
-    | FOR exp ';' exp ';' exp ':' ENDFOR
+    | WHILE { forWhileCounter++; } exp ':' cmd ENDWHILE { forWhileCounter--;  }
+    | FOR { forWhileCounter++; }  exp ';' exp ';' exp ':' ENDFOR { forWhileCounter--; }
     | PRINT '(' argList ')' ';' { args.clear(); }
     | SCAN '(' IDENT ')' ';'
-    | block 
+    | block
+    | BREAK { if(forWhileCounter == 0 ) yyerror("break out of for or while loop. Break in to break out.");  }
+    | RETURN exp { if(((TS_entry)$2).getTipo() != currScope.getTipo()) yyerror("retun value is wrong type. Expected " + currScope.getTipo()); 
+                   if(currScope.getSymbType() != SimbID.NomeFuncao) yyerror("Return command in non-method scope."); } ';'
     ;
 
 auxArgList : argList
            |
            ;
 
-argList : argList ',' exp { args.add($3); }
+argList : argList ',' exp { args.add((TS_entry)$3); }
         | exp
         ;
 
 exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
+    | exp '*' exp { $$ = validaTipo('*', (TS_entry)$1, (TS_entry)$3); }
+    | exp '-' exp { $$ = validaTipo('-', (TS_entry)$1, (TS_entry)$3); }
+    | exp '/' exp { $$ = validaTipo('/', (TS_entry)$1, (TS_entry)$3); }
+    | exp '<' exp { $$ = validaTipo('<', (TS_entry)$1, (TS_entry)$3); }
     | exp '>' exp { $$ = validaTipo('>', (TS_entry)$1, (TS_entry)$3); }
     | exp AND exp { $$ = validaTipo(AND, (TS_entry)$1, (TS_entry)$3); }
-    | NUM         { $$ = Tp_INT; }
+    | NUMINT         { $$ = Tp_INT; }
+    | NUMDOUBLE         { $$ = Tp_DOUBLE; }
     | '(' exp ')' { $$ = $2; }
-    | exp '=' exp  {  $$ = validaTipo(ATRIB, (TS_entry)$1, (TS_entry)$3);  }
-    | IDENT {
+    | exp '=' exp  { $$ = validaTipo(ATRIB, (TS_entry)$1, (TS_entry)$3);  }
+    | IDENT  '(' auxArgList ')' { 
 
-        TS_entry call = currScope.parent.pesquisa($1);
-        if (call == null) { yyerror("Method " + $1 + " not declared");
+                                TS_entry call = currScope.parent.pesquisa($1);
+                                if (call == null) yyerror("Method " + $1 + " not declared");
 
-    } '(' auxArgList ')' { 
+                                ArrayList<TS_entry> methods = currScope.parent.locais.getMethods($1);
+                                ArrayList<TS_entry> aux;
 
-      ArrayList<TS_entry> methods = currScope.parent.locais.getMethods($1);
-      ArrayList<TS_entry> aux;
+                                TS_entry trueType = Tp_ERRO;
+                                for ( TS_entry m : methods ) {
 
-      TS_entry trueType;
-      for ( TS_entry m : methods ) {
+                                  aux = m.locais.getLista();
 
-        aux = m.locais.getLista();
+                                  if (compare(args,aux)) trueType = m.getTipo();
 
-        if (compare(args,aux)) trueType = m.getTipo();
+                                }
 
-      }
+                                if (trueType == Tp_ERRO) {yyerror("Method " + $1 + " call's arguments mismatch");}
 
-      if (trueType == null) yyerror("Method " + $1 + " call's arguments mismatch");
-
-      args.clear();
-
-    }
+                                args.clear();
+                                $$ = trueType;
+      } 
+    
 
     | NEW IDENT {
-
-        TS_entry instance = currScope.parent.pesquisa($2);
-        if (instance == null) { yyerror("Class " + $1 + " not declared");
-
-    }
+                    TS_entry instance = currScope.parent.pesquisa($2);
+                    if (instance == null) yyerror("Class " + $2 + " not declared"); 
+                }
     
-    '(' auxArgList ')' { 
+                '(' auxArgList ')' { 
 
-      ArrayList<TS_entry> methods = currScope.parent.locais.getMethods($2);
-      ArrayList<TS_entry> aux;
+                                      ArrayList<TS_entry> methods = currScope.parent.locais.getMethods($2);
+                                      ArrayList<TS_entry> aux;
 
-      TS_entry trueType;
-      for ( TS_entry m : methods ) {
+                                      TS_entry trueType = Tp_ERRO;
+                                      for ( TS_entry m : methods ) {
 
-        aux = m.locais.getLista();
+                                        aux = m.locais.getLista();
 
-        if (compare(args,aux)) trueType = m.getTipo();
+                                        if (compare(args,aux)) trueType = m.getTipo();
 
-      }
+                                      }
 
-      if (trueType == null) yyerror("Constructor method " + $1 + " call's arguments mismatch");
-
-      args.clear();
-
-    }
+                                      if (trueType == Tp_ERRO){ yyerror("Constructor method " + $2 + " call's arguments mismatch"); }
+                                      if (trueType == Tp_VOID){ yyerror("Construtor returns void type."); trueType = Tp_ERRO; }
+                                      args.clear();
+                                      $$ = trueType;
+                                    }
+                  
 
     | IDENT       { 
 
         TS_entry nodo = currScope.pesquisa($1);
-        if (nodo == null) { yyerror("(sem) var <" + $1 + "> nao declarada"); $$ = Tp_ERRO; } 
+        if (nodo == null ) { yyerror("(sem) var <" + $1 + "> nao declarada"); $$ = Tp_ERRO; } 
         else { $$ = nodo.getTipo(); }
 
       }
@@ -233,12 +265,16 @@ exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
 
   public static TS_entry Tp_ERRO = new TS_entry("_erro_", null,  SimbID.TipoBase, null);
 
+  public static TS_entry Tp_VOID = new TS_entry("void", null,  SimbID.TipoBase, null);
+
+
   public static final int ATRIB = 1600;
 
   private TS_entry currScope;
   private SimbID currSymb;
   private TS_entry currentType;
   private ArrayList<TS_entry> args;
+  private int forWhileCounter = 0;
 
   private int yylex () {
     int yyl_return = -1;
@@ -305,12 +341,35 @@ exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
                          return Tp_DOUBLE;     
                     else yyerror("(sem) tipos incomp. para soma: "+ A.getTipoStr() + " + "+B.getTipoStr());
                     break;
-
+            case '*' :
+                    if ( A == Tp_INT && B == Tp_INT) return Tp_INT;
+                    else if ( (A == Tp_DOUBLE && (B == Tp_INT || B == Tp_DOUBLE)) ||
+                              (B == Tp_DOUBLE && (A == Tp_INT || A == Tp_DOUBLE)) ) 
+                         return Tp_DOUBLE;     
+                    else yyerror("(sem) tipos incomp. para soma: "+ A.getTipoStr() + " + "+B.getTipoStr());
+                    break;
+            case '-' :
+                    if ( A == Tp_INT && B == Tp_INT) return Tp_INT;
+                    else if ( (A == Tp_DOUBLE && (B == Tp_INT || B == Tp_DOUBLE)) ||
+                              (B == Tp_DOUBLE && (A == Tp_INT || A == Tp_DOUBLE)) ) 
+                         return Tp_DOUBLE;     
+                    else yyerror("(sem) tipos incomp. para soma: "+ A.getTipoStr() + " + "+B.getTipoStr());
+                    break;
+            case '/' :
+                    if ( A == Tp_INT && B == Tp_INT) return Tp_INT;
+                    else if ( (A == Tp_DOUBLE && (B == Tp_INT || B == Tp_DOUBLE)) ||
+                              (B == Tp_DOUBLE && (A == Tp_INT || A == Tp_DOUBLE)) ) 
+                         return Tp_DOUBLE;     
+                    else yyerror("(sem) tipos incomp. para soma: "+ A.getTipoStr() + " + "+B.getTipoStr());
+                    break;
             case '>' :
                       if ((A == Tp_INT || A == Tp_DOUBLE) && (B == Tp_INT || B == Tp_DOUBLE)) return Tp_BOOL;
                       else yyerror("(sem) tipos incomp. para op relacional: "+ A.getTipoStr() + " > "+B.getTipoStr());
                       break;
-
+            case '<' :
+                      if ((A == Tp_INT || A == Tp_DOUBLE) && (B == Tp_INT || B == Tp_DOUBLE)) return Tp_BOOL;
+                      else yyerror("(sem) tipos incomp. para op relacional: "+ A.getTipoStr() + " > "+B.getTipoStr());
+                      break; 
             case AND:
                       if (A == Tp_BOOL && B == Tp_BOOL) return Tp_BOOL;
                       else yyerror("(sem) tipos incomp. para op lógica: "+ A.getTipoStr() + " && "+B.getTipoStr());
@@ -323,10 +382,10 @@ exp : exp '+' exp { $$ = validaTipo('+', (TS_entry)$1, (TS_entry)$3); }
 
 boolean compare(ArrayList<TS_entry> args, ArrayList<TS_entry> methodLocals) {
 
-  if (args == 0) { 
-    if (methodLocals == 0) return true; 
+  if (args.size() == 0) { 
+    if (methodLocals.size() == 0) return true; 
     else return false; 
-  } else if (methodLocals == 0) return false;
+  } else if (methodLocals.size() == 0) return false;
 
   for (int i = 0; i < methodLocals.size(); i++) {
 

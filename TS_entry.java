@@ -9,7 +9,7 @@ public class TS_entry {
     public TS_entry parent;
 
     public TS_entry(String umId, TS_entry umTipo, SimbID umaClasse, TS_entry tp) {
-
+        locais = new TabSimb();
         id = umId;
         tipo = umTipo;
         classe = umaClasse;
@@ -28,8 +28,8 @@ public class TS_entry {
 
         TS_entry entry = locais.pesquisa(umId);
         if (entry != null) return entry;
-        else return parent.pesquisa(umId);
-
+        else if (parent != null) return parent.pesquisa(umId);
+        else return null;
     }
 
     public boolean pesquisaPoli(TS_entry newEntry) { return locais.pesquisaPoli(newEntry); }
